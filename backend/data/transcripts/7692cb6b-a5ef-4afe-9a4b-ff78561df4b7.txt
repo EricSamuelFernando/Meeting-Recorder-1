@@ -1,0 +1,9 @@
+[00:02] Speaker 0: Hey. Did you finish the AI assignment?
+[00:11] Speaker 1: Almost. I'm stuck on the last part. Neo four j is confusing me.
+[00:16] Speaker 0: Same. I spent two hours just fixing connection errors.
+[00:21] Speaker 1: K. By this. Don't remind me my code finally ran at 2AM. That's dedication. Did you understand the recommendation logic? Abed. I watched the YouTube video, and it helped me. Send me the link later, please. Sure. By the way, are you coming to class today?
+[00:46] Speaker 0: Yeah. But only after lunch. I need sleep.
+[00:51] Speaker 1: Fair enough. College life is just deadlines and coffee. True. But at least we are learning cool stuff. Yeah. Yeah. This project will look good on our resume.
+[01:05] Speaker 0: Definitely. Let's finish it properly.
+[01:09] Speaker 1: Deal. We will help each other tell a submission.
+[01:13] Speaker 0: Always. Teamwork for the win. Wait.

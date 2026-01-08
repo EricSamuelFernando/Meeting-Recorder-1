@@ -1,0 +1,19 @@
+[4s] Speaker : Hi. Good morning. How are you? Tell me explain me about yourself.
+[11s] Speaker : Hello. Hello. I'm Sai.
+[32s] Speaker : Search.
+[35s] Speaker : Okay. That's great. So you're doing internship on Snap Homes. Right? So on which project you're working on now?
+[43s] Speaker : Right. I'm working on AI search. It's like a chatbot where we are building it from scratch.
+[50s] Speaker : I
+[59s] Speaker : So what are your next steps? So how are you planning? What's your architecture? And what's our functionalities?
+[65s] Speaker : And so can you explain those?
+[68s] Speaker : Yeah. Yeah. Actually, I have the movie eye picture,
+[72s] Speaker : where in that I'm I'm having four different agent.
+[102s] Speaker : So templates are you are made or so they all those are
+[106s] Speaker : default?
+[108s] Speaker : We actually made the templates around one to five questions, we built, for our satellites,
+[126s] Speaker : So if the user ask other than the template, how the AI will answer it?
+[133s] Speaker : If if the user is asking a question, it's just not in the template, then,
+[138s] Speaker : they will be
+[148s] Speaker : No. That's great, and thank you.
+[150s] Speaker : Bye. See you later.
+[154s] Speaker : Let's see.

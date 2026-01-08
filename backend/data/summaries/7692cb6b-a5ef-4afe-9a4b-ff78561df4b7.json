@@ -1,0 +1,16 @@
+{
+  "summary": "Speakers discussed their progress on an AI assignment, specifically mentioning difficulties with Neo4j and connection errors. Speaker 1 shared that they watched a YouTube video that helped with understanding the recommendation logic and requested the link. They confirmed attendance to class after lunch and reflected on the challenges of college life, emphasizing the importance of the project for their resumes. They agreed to help each other finish the assignment.",
+  "insights": {
+    "decisions": [],
+    "action_items": [
+      {
+        "item": "Send YouTube link about recommendation logic",
+        "responsible": "Speaker 1"
+      },
+      {
+        "item": "Help each other finish the AI assignment",
+        "responsible": "Both speakers"
+      }
+    ]
+  }
+}
