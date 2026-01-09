@@ -1,5 +1,5 @@
 
-## Architecture Analysis: Recorder (Fathom-style MVP)
+## Architecture Analysis: Recorder 
 
 The **Recorder** project is designed as a **hybrid local-first application**. Unlike the cloud-native, serverless architecture of SnapAudit, Recorder focuses on local processing and storage:
 
