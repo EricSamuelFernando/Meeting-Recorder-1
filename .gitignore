@@ -1,3 +1,8 @@
 .env
 backend/.env
 
+node_modules/
+.env
+data/
+recordings/
+*.log
