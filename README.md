@@ -118,7 +118,7 @@ PORT=8080
 ```bash
 # Start backend
 cd backend
-node server.js
+node server.js/npm start
 
 ```
 
