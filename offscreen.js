@@ -6,10 +6,17 @@ let audioCtx = null;
 let currentTabId = null;
 let rmsSamples = [];
 let rmsIntervalId = null;
+let uploadMetadata = {}; // Store metadata like parentSessionId
 
 async function uploadRecording(blob) {
   const formData = new FormData();
   formData.append('audio', blob, 'recording.webm');
+  if (uploadMetadata.parentSessionId) {
+    formData.append('parentSessionId', uploadMetadata.parentSessionId);
+  }
+  if (uploadMetadata.meetingName) {
+    formData.append('meetingName', uploadMetadata.meetingName);
+  }
 
   const response = await fetch('http://localhost:8080/upload', {
     method: 'POST',
@@ -114,7 +121,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         micStream = await getMicStream();
 
         const tabTracks = tabStream.getAudioTracks();
-        const micTracks = micStream.getAudioTracks();
+        const micTracks = micStream ? micStream.getAudioTracks() : [];
         console.log('Audio tracks detected:', tabTracks.length + micTracks.length);
         logTrackState('Tab', tabTracks);
         logTrackState('Mic', micTracks);
@@ -123,7 +130,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           throw new Error('Missing tab audio track.');
         }
         if (micTracks.length === 0) {
-          throw new Error('Missing microphone audio track.');
+          console.warn('No microphone track available; continuing with tab audio only.');
+          if (micStream) {
+            micStream.getTracks().forEach((track) => track.stop());
+          }
+          micStream = null;
         }
 
         audioCtx = new AudioContext();
@@ -136,11 +147,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         analyser.fftSize = 2048;
 
         const tabSource = audioCtx.createMediaStreamSource(tabStream);
-        const micSource = audioCtx.createMediaStreamSource(micStream);
+        const micSource = micStream ? audioCtx.createMediaStreamSource(micStream) : null;
         const mix = audioCtx.createGain();
 
         tabSource.connect(mix);
-        micSource.connect(mix);
+        if (micSource) {
+          micSource.connect(mix);
+        }
         mix.connect(destination);
         mix.connect(analyser);
 
@@ -236,6 +249,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'STOP_RECORDING') {
+    uploadMetadata = { parentSessionId: message.parentSessionId, meetingName: message.meetingName };
     stopRecording();
   }
 });

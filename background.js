@@ -1,5 +1,91 @@
 const recordingTabs = new Set();
 const badgeFlashers = new Map();
+const recordingStartTimes = new Map();
+
+function getMicStatus(tabId) {
+  return new Promise((resolve) => {
+    chrome.tabs.sendMessage(tabId, { type: 'CHECK_MIC_STATUS' }, (response) => {
+      if (chrome.runtime.lastError) {
+        resolve({ ok: false, permission: 'prompt', muted: false, found: false });
+        return;
+      }
+      resolve({
+        ok: true,
+        permission: response?.permission || 'prompt',
+        muted: Boolean(response?.muted),
+        found: Boolean(response?.found)
+      });
+    });
+  });
+}
+
+async function ensureMicReady(tabId) {
+  const status = await getMicStatus(tabId);
+  if (!status.ok) return false;
+  if (status.permission !== 'granted') {
+    chrome.tabs.sendMessage(tabId, { type: 'MIC_PERMISSION_REQUIRED' });
+    await clearBadge(tabId);
+    return false;
+  }
+  if (status.found && status.muted) {
+    chrome.tabs.sendMessage(tabId, { type: 'MIC_MUTED' });
+    await clearBadge(tabId);
+    return false;
+  }
+  return true;
+}
+
+async function beginRecording(tabId) {
+  stopBadgeFlash(tabId);
+  await setBadge(tabId, 'REC', '#dc2626');
+  const ready = await ensureMicReady(tabId);
+  if (!ready) {
+    return false;
+  }
+
+  try {
+    await handleStartRecording(tabId);
+    recordingTabs.add(tabId);
+    recordingStartTimes.set(tabId, Date.now());
+    await setBadge(tabId, 'ON', '#16a34a');
+    chrome.tabs.sendMessage(tabId, { type: 'RECORDING_STARTED' });
+    return true;
+  } catch (error) {
+    console.error('Failed to start recording:', error);
+    await clearBadge(tabId);
+    chrome.tabs.sendMessage(tabId, { type: 'RECORDING_ERROR', message: error.message });
+    return false;
+  }
+}
+
+async function startRecordingForTab(tabId, sendResponse) {
+  try {
+    if (!tabId) {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      tabId = tab?.id;
+    }
+    if (!tabId) {
+      sendResponse?.({ status: 'error', message: 'No active tab.' });
+      return;
+    }
+
+    const alreadyCaptured = await isTabCaptured(tabId);
+    if (recordingTabs.has(tabId) || alreadyCaptured) {
+      recordingTabs.add(tabId);
+      sendResponse?.({ status: 'accepted' });
+      return;
+    }
+
+    const started = await beginRecording(tabId);
+    sendResponse?.({
+      status: started ? 'accepted' : 'error',
+      message: started ? undefined : 'Recording blocked.'
+    });
+  } catch (error) {
+    console.error('Start failed:', error);
+    sendResponse?.({ status: 'error', message: error?.message || 'Start failed.' });
+  }
+}
 
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab?.id) return;
@@ -10,33 +96,69 @@ chrome.action.onClicked.addListener(async (tab) => {
     return;
   }
 
-  try {
-    stopBadgeFlash(tab.id);
-    await setBadge(tab.id, 'REC', '#dc2626');
-    await handleStartRecording(tab.id);
-    recordingTabs.add(tab.id);
-    await setBadge(tab.id, 'ON', '#16a34a');
-    chrome.tabs.sendMessage(tab.id, { type: 'RECORDING_STARTED' });
-  } catch (error) {
-    console.error('Failed to start recording:', error);
-    await clearBadge(tab.id);
-    chrome.tabs.sendMessage(tab.id, { type: 'RECORDING_ERROR', message: error.message });
-  }
+  await beginRecording(tab.id);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'START_RECORDING') {
-    console.log('START_RECORDING received');
-    sendResponse({ status: 'accepted' });
-    handlePopupStart();
-    return false;
+    startRecordingForTab(sender?.tab?.id, sendResponse);
+    return true;
   }
 
   if (message.action === 'STOP_RECORDING') {
-    console.log('STOP_RECORDING received');
     sendResponse({ status: 'accepted' });
-    handlePopupStop();
+    stopRecording(sender?.tab?.id);
     return false;
+  }
+
+  if (message.type === 'CTA_START') {
+    const tabId = sender?.tab?.id;
+    if (!tabId) {
+      sendResponse({ status: 'error', message: 'No active tab to open popup.' });
+      return false;
+    }
+
+    (async () => {
+      try {
+        const alreadyCaptured = await isTabCaptured(tabId);
+        if (recordingTabs.has(tabId) || alreadyCaptured) {
+          recordingTabs.add(tabId);
+          if (!recordingStartTimes.has(tabId)) recordingStartTimes.set(tabId, Date.now());
+          sendResponse({ status: 'started' });
+          return;
+        }
+        if (!chrome.action?.openPopup) {
+          sendResponse({ status: 'error', message: 'Popup not available.' });
+          return;
+        }
+        await chrome.action.openPopup();
+        sendResponse({ status: 'popup_opened' });
+      } catch (error) {
+        console.error('CTA start failed:', error);
+        sendResponse({
+          status: 'error',
+          message: error?.message || 'Failed to open popup.'
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (message.type === 'GET_RECORDING_STATUS') {
+    const tabId = message.tabId || sender?.tab?.id;
+    if (!tabId) {
+      sendResponse({ status: 'error', message: 'No active tab.' });
+      return false;
+    }
+
+    (async () => {
+      const alreadyCaptured = await isTabCaptured(tabId);
+      const isRecording = recordingTabs.has(tabId) || alreadyCaptured;
+      const startedAt = recordingStartTimes.get(tabId) || null;
+      const elapsedSeconds = startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0;
+      sendResponse({ status: 'ok', isRecording, elapsedSeconds });
+    })();
+    return true;
   }
 
   if (message.type === 'REQUEST_START') {
@@ -47,12 +169,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
+  if (message.type === 'AUTO_START') {
+    startRecordingForTab(sender?.tab?.id, sendResponse);
+    return true;
+  }
+
   if (message.type === 'STOP_RECORDING') {
     if (sender?.tab?.id) {
       recordingTabs.delete(sender.tab.id);
+      recordingStartTimes.delete(sender.tab.id);
     }
-    stopRecording(sender?.tab?.id);
+    stopRecording(sender?.tab?.id, message.parentSessionId, message.meetingName);
     sendResponse({ status: 'success' });
+    return false;
+  }
+
+  if (message.type === 'MEETING_ENDED' && sender?.tab?.id) {
+    stopRecording(sender.tab.id);
     return false;
   }
 
@@ -78,6 +211,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command !== 'toggle-recording') return;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) return;
+
+  const alreadyCaptured = await isTabCaptured(tab.id);
+  if (recordingTabs.has(tab.id) || alreadyCaptured) {
+    stopRecording(tab.id);
+    return;
+  }
+
+  await beginRecording(tab.id);
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (recordingTabs.has(tabId)) {
+    stopRecording(tabId);
+  }
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (!recordingTabs.has(tabId)) return;
+  
+  // Only stop if URL actually changed (changeInfo.url exists) AND it's away from meet.google.com
+  // This prevents false stops when switching tabs but staying on the same URL
+  if (changeInfo.url && !/meet\.google\.com/.test(changeInfo.url)) {
+    console.log(`Stopping recording: tab navigated away from Google Meet to ${changeInfo.url}`);
+    stopRecording(tabId);
+  }
+});
+
 async function handleStartRecording(tabId) {
   try {
     const alreadyCaptured = await isTabCaptured(tabId);
@@ -85,13 +249,11 @@ async function handleStartRecording(tabId) {
       throw new Error('Recording already active for this tab.');
     }
 
-    // Get Stream ID immediately (preserves the user gesture).
     const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
 
     await ensureOffscreenDocument();
     await ensureOffscreenReady();
 
-    // Send stream to offscreen for recording + processing.
     chrome.runtime.sendMessage({
       type: 'START_RECORDING',
       streamId: streamId,
@@ -130,13 +292,11 @@ async function ensureOffscreenDocument() {
       if (exists) return;
     }
 
-    console.log('Attempting to create offscreen document');
     await chrome.offscreen.createDocument({
       url: 'offscreen.html',
-      reasons: ['USER_MEDIA'], // Required for getUserMedia
+      reasons: ['USER_MEDIA'],
       justification: 'Recording Meet audio'
     });
-    console.log('Offscreen document created');
 
     const maxChecks = 10;
     for (let i = 0; i < maxChecks; i += 1) {
@@ -149,30 +309,6 @@ async function ensureOffscreenDocument() {
   } catch (error) {
     console.error('Failed to create offscreen document:', error);
     throw error;
-  }
-}
-
-async function handlePopupStart() {
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) {
-      console.error('Popup start failed: No active tab.');
-      return;
-    }
-
-    const alreadyCaptured = await isTabCaptured(tab.id);
-    if (recordingTabs.has(tab.id) || alreadyCaptured) {
-      recordingTabs.add(tab.id);
-      console.log('Popup start ignored: already recording.');
-      return;
-    }
-
-    await handleStartRecording(tab.id);
-    recordingTabs.add(tab.id);
-    await setBadge(tab.id, 'ON', '#16a34a');
-    chrome.tabs.sendMessage(tab.id, { type: 'RECORDING_STARTED' });
-  } catch (error) {
-    console.error('Popup start failed:', error);
   }
 }
 
@@ -189,7 +325,6 @@ function handlePopupStop() {
         console.error('Popup stop failed: No active tab.');
         return;
       }
-      recordingTabs.delete(tabId);
       stopRecording(tabId);
     });
   } catch (error) {
@@ -197,17 +332,22 @@ function handlePopupStop() {
   }
 }
 
-function stopRecording(tabId) {
+function stopRecording(tabId, parentSessionId = null, meetingName = null) {
+  if (!tabId) return;
+  const wasRecorded = recordingTabs.delete(tabId);
+  recordingStartTimes.delete(tabId);
+
   chrome.runtime.sendMessage({
     type: 'STOP_RECORDING',
-    target: 'offscreen'
+    target: 'offscreen',
+    parentSessionId: parentSessionId, // Forward the ID from content script
+    meetingName: meetingName
   });
 
-  if (tabId) {
-    stopBadgeFlash(tabId);
-    clearBadge(tabId);
-    chrome.tabs.sendMessage(tabId, { type: 'RECORDING_STOPPED' });
-  }
+  stopBadgeFlash(tabId);
+  clearBadge(tabId);
+  chrome.tabs.sendMessage(tabId, { type: 'RECORDING_STOPPED' });
+
 }
 
 function isTabCaptured(tabId) {

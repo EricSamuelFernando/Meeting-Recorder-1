@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Recording & Summary</title>
+  <style>
+    :root {
+      font-family: "Inter", system-ui, sans-serif;
+      background: #050c20;
+      color: #e2e8f0;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      width: min(900px, 100%);
+      background: #0f172a;
+      border-radius: 18px;
+      padding: 32px 36px;
+      box-shadow: 0 25px 40px rgba(15, 23, 42, 0.6);
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+    .card h1 {
+      margin: 0;
+      color: #f8fafc;
+      font-size: 26px;
+    }
+    .section {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .section label {
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #94a3b8;
+    }
+    .summary,
+    .transcript {
+      background: #0b1225;
+      border-radius: 12px;
+      padding: 16px;
+      font-size: 14px;
+      line-height: 1.6;
+      min-height: 120px;
+    }
+    .transcript {
+      max-height: 260px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      font-family: "JetBrains Mono", Menlo, monospace;
+    }
+    audio {
+      width: 100%;
+      outline: none;
+    }
+    .empty {
+      color: #94a3b8;
+      font-style: italic;
+    }
+    .loading {
+      color: #38bdf8;
+      font-weight: 600;
+    }
+    .close-btn {
+      background: none;
+      border: 1px solid rgba(226, 232, 240, 0.2);
+      border-radius: 999px;
+      color: #e2e8f0;
+      padding: 6px 14px;
+      cursor: pointer;
+      align-self: flex-end;
+    }
+    /* Styles for Task Continuity */
+    .metric-row { display: flex; gap: 12px; margin-bottom: 12px; }
+    .metric { background: rgba(255,255,255,0.05); padding: 8px 12px; border-radius: 8px; flex: 1; }
+    .metric-label { font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .metric-value { font-size: 15px; font-weight: 600; color: #e2e8f0; }
+    .progress-bar { height: 6px; background: #334155; border-radius: 3px; overflow: hidden; margin-top: 8px; }
+    .progress-fill { height: 100%; background: #38bdf8; transition: width 0.3s; }
+    .analysis-text { font-style: italic; color: #cbd5e1; border-left: 3px solid #38bdf8; padding-left: 12px; margin: 0 0 16px 0; }
+    .task-card { background: rgba(0,0,0,0.2); border-radius: 8px; padding: 12px; margin-top: 12px; border: 1px solid rgba(255,255,255,0.05); }
+  </style>
+</head>
+<body>
+  <div class="card" id="recap-card">
+    <button class="close-btn" id="close-view">Close</button>
+    <h1>Meeting recap</h1>
+    <div class="section">
+      <label>Recording</label>
+      <audio id="recording-player" controls></audio>
+      <p class="loading" id="recording-loading">Loading recording…</p>
+    </div>
+    <div class="section">
+      <label>Summary</label>
+      <div class="summary" id="summary-block">
+        <span class="loading">Summary will appear once processing is complete.</span>
+      </div>
+    </div>
+    <div class="section">
+      <label>Transcript</label>
+      <div class="transcript" id="transcript-block">
+        <span class="loading">Transcript is still processing.</span>
+      </div>
+    </div>
+    
+    <!-- New Section for Task Continuity -->
+    <div class="section" id="continuity-section" style="display: none;">
+      <label>Project Progress & Continuity</label>
+      <div class="summary" id="continuity-block"></div>
+    </div>
+  </div>
+  <script type="module" src="view.js"></script>
+  <script>
+    // Inline script to render Task Continuity data without modifying view.js
+    (async () => {
+      try {
+        // 1. Get Session ID from URL (supports query ?session=:id or path /session/:id)
+        const params = new URLSearchParams(window.location.search);
+        let sessionId = params.get('session') || params.get('id');
+
+        if (!sessionId) {
+          const pathParts = window.location.pathname.split('/');
+          const last = pathParts[pathParts.length - 1];
+          if (last && !last.endsWith('.html')) sessionId = last;
+        }
+        if (!sessionId) return;
+
+        // 2. Fetch Session Data
+        const res = await fetch(`http://localhost:8080/api/sessions/${sessionId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // 3. Parse Summary JSON
+        let summaryObj = data.summary;
+        if (typeof summaryObj === 'string') {
+          try { summaryObj = JSON.parse(summaryObj); } catch(e) {}
+        }
+
+        // 4. Render Continuity Data if present
+        if (summaryObj && summaryObj.taskContinuity) {
+          const cont = summaryObj.taskContinuity;
+          const container = document.getElementById('continuity-block');
+          const section = document.getElementById('continuity-section');
+          
+          let html = '';
+          if (cont.aiAnalysis) {
+            html += `<div class="analysis-text">${cont.aiAnalysis}</div>`;
+          }
+
+          if (cont.previousTasks && cont.previousTasks.length > 0) {
+            cont.previousTasks.forEach(task => {
+              html += `
+                <div class="task-card">
+                  <div style="font-weight:600; margin-bottom:10px; color:#f1f5f9;">${task.taskTitle}</div>
+                  <div class="metric-row">
+                    <div class="metric"><span class="metric-label">Velocity</span><span class="metric-value">${task.velocity}/day</span></div>
+                    <div class="metric"><span class="metric-label">Est. Finish</span><span class="metric-value">${task.estimatedCompletionDate}</span></div>
+                    <div class="metric"><span class="metric-label">Progress</span><span class="metric-value">${task.progressPercent}%</span></div>
+                  </div>
+                  <div class="progress-bar"><div class="progress-fill" style="width: ${task.progressPercent}%"></div></div>
+                </div>`;
+            });
+          }
+          
+          if (html) {
+            container.innerHTML = html;
+            section.style.display = 'flex';
+          }
+        }
+      } catch (err) {
+        console.error("Error rendering continuity:", err);
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,1 +1,0 @@
-[00:00] Speaker 0: Then I have in my database. You could add more things in here. For name, we're gonna add a field, and this is actually the name of the file itself. So we'll just click on title. On the content, we'll just go to the conversation, and we'll and I really wanna show you how it looks like. There we go. We just updated with a new call here at the top of the CRM.
