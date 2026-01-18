@@ -1,145 +1,164 @@
 
-## Architecture Analysis: Recorder 
-
-The **Recorder** project is designed as a **hybrid local-first application**. Unlike the cloud-native, serverless architecture of SnapAudit, Recorder focuses on local processing and storage:
-
-* **Data Flow:** It uses the Chrome **Offscreen API** to bypass browser limitations for audio capture, mixing system and microphone audio before sending it to a local Node.js server.
-* **Intelligence Layer:** It leverages a "Best-of-Breed" AI strategy, using **Deepgram** (optimized for speed/accuracy in transcription) alongside **OpenAI** (optimized for reasoning/summarization).
-* **Storage Strategy:** It uses **SQLite** for relational session data and the local **filesystem** for "blob" storage (WebM/Text/JSON), making it highly portable for a single-user environment.
-
-# Recorder - Google Meet Intelligence MVP
-
-An intelligent meeting assistant that captures, transcribes, and summarizes Google Meet sessions using a Chrome Extension and a local Node.js processing engine.
-
 ## 🏗️ Architecture
 
 ### Infrastructure Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Local / Client Infrastructure                │
+│                        Local & Cloud Hybrid                     │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│  ┌──────────────┐         ┌──────────────┐      ┌────────────┐  │
-│  │    Chrome    │ ────────│  Offscreen   │ ────▶│ Deepgram   │  │
-│  │  Extension   │         │   Document   │      │ (Transcribe)│  │
-│  └──────┬───────┘         └──────┬───────┘      └────────────┘  │
-│         │                        │                     ▲        │
-│         ▼                        ▼                     │        │
-│  ┌──────────────┐         ┌──────────────┐      ┌────────────┐  │
-│  │ Content Script│         │   Node.js    │ ────▶│   OpenAI   │  │
-│  │ (Meet UI)    │         │    Server    │      │ (Summarize)│  │
-│  └──────────────┘         └──────┬───────┘      └────────────┘  │
-│                                  │                              │
-│                    ┌─────────────┼─────────────┐                │
-│                    │             │             │                │
-│                    ▼             ▼             ▼                │
-│              ┌─────────┐   ┌───────────┐   ┌─────────┐          │
-│              │ SQLite  │   │Local Files│   │   Env   │          │
-│              │ (DB)    │   │(WebM/Text)│   │ (Secrets)│          │
-│              └─────────┘   └───────────┘   └─────────┘          │
+│  ┌──────────────┐         ┌──────────────┐                      │
+│  │ Chrome Ext.  │ ────────│  Google Meet │                      │
+│  │ (Recorder)   │         │  Tab Audio   │                      │
+│  └──────┬───────┘         └──────────────┘                      │
+│         │                                                       │
+│    ┌────┴──────────────────────────┐                            │
+│    │                               │                            │
+│    ▼                               ▼                            │
+│  ┌─────────────┐           ┌──────────────┐                     │
+│  │ Offscreen   │           │   Node.js    │                     │
+│  │ Document    │           │   Backend    │                     │
+│  └─────────────┘           └──────┬───────┘                     │
+│                                    │                            │
+│                                    ▼                            │
+│                            ┌──────────────┐                     │
+│                            │   SQLite     │                     │
+│                            │  Database    │                     │
+│                            │ (bmad.sqlite)│                     │
+│                            └──────┬───────┘                     │
+│                                   │                             │
+│                    ┌──────────────┼──────────────┐              │
+│                    │              │              │              │
+│                    ▼              ▼              ▼              │
+│              ┌─────────┐    ┌─────────┐    ┌─────────┐          │
+│              │Deepgram │    │ OpenAI  │    │ Local   │          │
+│              │(Nova-2) │    │(GPT-4o) │    │ Files   │          │
+│              └─────────┘    └─────────┘    └─────────┘          │
 │                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────────┘
 
 ```
 
 ### Tech Stack
 
-**Frontend (Chrome Extension):**
+**Frontend (Extension):**
 
-* Manifest V3
-* Chrome Offscreen API (for audio capture)
-* Vanilla JS / HTML / CSS
-* Chrome Tab Capture API
+* Chrome Manifest V3
+* Offscreen API (Audio Capture)
+* JavaScript (Background & Content Scripts)
+* Custom Meet Overlay Panel
 
 **Backend:**
 
 * Node.js v20+
-* Express (Web Framework)
-* SQLite3 (Database)
-* Fluent-ffmpeg (Audio processing)
+* Express.js (API Framework)
+* SQLite3 (Local Persistence)
+* Multer (Multipart Audio Uploads)
 
-**AI Services:**
+**AI & External Services:**
 
-* **Deepgram (Nova-2):** High-speed, multi-speaker transcription
-* **OpenAI (GPT-4o-mini):** Intelligent summarization and insight extraction
+* **Deepgram Nova-2:** High-accuracy transcription with speaker diarization.
+* **OpenAI GPT-4o-mini:** Structured summarization and task continuity analysis.
 
-## 🚀 How It Works
+## 🚀 Features & Logic
 
-The application follows a four-stage processing pipeline:
+### Core Functionalities
 
-1. **Capture:** The extension injects a controller into Google Meet. Upon user gesture, it opens an offscreen document to capture and mix the tab audio and microphone stream.
-2. **Ingestion:** On "Stop," the audio is sent as a WebM blob to the local Node.js server via a multipart/form-data POST request.
-3. **Intelligence:** The backend coordinates with Deepgram for transcription and OpenAI for generating structured summaries.
-4. **Persistence:** Results are indexed in SQLite, while raw audio and transcripts are stored in the `backend/data/` directory.
+* **Dual-Stream Mixing:** Merges microphone and tab audio into a single WebM file.
+* **Robust Mute Handling:** Continues recording tab audio even if the local microphone is muted.
+* **Sequential IDs:** Automatically assigns IDs like `001`, `002` for chronological tracking.
+* **Fathom-style Summaries:** Generates structured JSON summaries including Main Tasks, Subtasks, and Action Items.
+
+### Meeting Continuity Workflow
+
+The recorder features "Antigravity" memory logic:
+
+1. **Thread Identification:** Users name meetings (e.g., "Snaphomz Sync").
+2. **Context Recall:** If a meeting is marked as a "Continuation," the backend fetches the previous summary from SQLite.
+3. **Progressive Summary:** OpenAI analyzes the new transcript alongside the old summary to track task completion and project velocity.
 
 ## 🛠️ Local Development
 
 ### Prerequisites
 
 * Node.js 20+
-* Chrome Browser
-* Deepgram & OpenAI API Keys
+* Deepgram API Key
+* OpenAI API Key
 
 ### Setup
 
-1. **Clone the repository:**
-```bash
-git clone [repository-url]
-cd meetingrec
+1. **Clone and Install Backend:**
 
-```
-
-
-2. **Backend Configuration:**
 ```bash
 cd backend
 npm install
-cp .env.example .env
-# Add your DEEPGRAM_API_KEY and OPENAI_API_KEY to .env
 
 ```
 
+2. **Configure Environment:**
+Create `backend/.env`:
 
-3. **Start the Backend:**
-```bash
-node server.js/npm start
+```env
+DEEPGRAM_API_KEY=your_key
+OPENAI_API_KEY=your_key
+OPENAI_MODEL=gpt-4o-mini
+PORT=8080
 
 ```
 
+3. **Load Extension:**
 
-*Server runs at `http://localhost:8080*`
-4. **Extension Installation:**
 * Open `chrome://extensions`
 * Enable **Developer Mode**
-* Click **Load unpacked**
-* Select the `meetingrec` root folder
+* Click **Load Unpacked** and select the `meetingrec` folder.
+
+### Run Locally
+
+```bash
+# Start backend
+cd backend
+node server.js
+
+```
+
+Access the extension by joining a Google Meet.
+
+## 📊 Data Management
+
+### Local Storage Hierarchy
+
+All session data is persisted in `backend/data/`:
+
+* `/recordings/`: Original `.webm` audio files.
+* `/transcripts/`: Raw `.txt` files with speaker labels.
+* `/summaries/`: Structured `.json` containing:
+* `mainTask` & `subtasks`
+* `actionItemsByAssignee` (Grouped list)
+* `continuation` (Progress, velocity, blockers)
 
 
 
-## 📊 Data Management & Storage
+### Database Schema (SQLite)
 
-All session data is stored locally to ensure privacy and low latency.
+The `bmad.sqlite` file serves as the source of truth for:
 
-**Directory Structure (`backend/data/`):**
+* Session metadata (ID, Name, Date, Duration).
+* Parent-Child relationships for continuation threads.
+* Speaker name mapping and participant rosters.
 
-* `/recordings/`: Original `.webm` audio files
-* `/transcripts/`: Raw `.txt` files from Deepgram
-* `/summaries/`: AI-generated `.json` insights
-* `bmad.sqlite`: Main database containing session metadata and speaker maps
+## 🔒 Security & Best Practices
 
-**API Endpoints:**
+* **Local-First:** All sensitive transcripts and recordings stay on your local machine.
+* **Environment Safety:** API keys are never hardcoded and must be managed via `.env`.
+* **User Gesture:** Follows Chrome security policies requiring a user click to initiate tab capture.
 
-* `GET /api/sessions`: Retrieve all historical meetings
-* `GET /api/sessions/:id`: Detailed view of transcript and summary
-* `POST /api/sessions/:id/speaker-map`: Update participant names post-meeting
+## 🤝 Contributing
 
-## 🔒 Security & Privacy
+1. Create a feature branch for new AI prompt logic or UI tweaks.
+2. Ensure sequential ID logic remains intact during DB migrations.
+3. Test dual-stream audio capture after any changes to `offscreen.js`.
 
-* **Local Processing:** Audio files and transcripts never leave your local machine, except when sent to AI providers via encrypted API calls.
-* **Environment Safety:** API keys are never hardcoded and must be provided via a `.env` file (which is git-ignored).
-* **Permissions:** The extension utilizes the "Offscreen" permission to ensure recording only occurs when explicitly triggered by the user.
-
-## 📝 License
-
+   
+##📝 License:
 MVP prototype for local use.
