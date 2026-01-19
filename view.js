@@ -68,40 +68,46 @@ async function init() {
   try {
     const data = await fetchSession(sessionId);
     let summaryText = data?.summary;
-    let parsedSummary = null;
+    let summaryPayload = null;
 
-    try {
-      parsedSummary = JSON.parse(summaryText);
-    } catch (e) {
-      parsedSummary = null;
+    if (typeof summaryText === 'object' && summaryText !== null) {
+      summaryPayload = summaryText.summary || summaryText;
+    } else if (typeof summaryText === 'string') {
+      try {
+        const parsedSummary = JSON.parse(summaryText);
+        if (parsedSummary && typeof parsedSummary.summary === 'object' && parsedSummary.summary !== null) {
+          summaryPayload = parsedSummary.summary;
+        }
+      } catch (e) {
+        summaryPayload = null;
+      }
     }
 
-    if (parsedSummary && typeof parsedSummary.summary === 'object' && parsedSummary.summary !== null) {
-      const summaryObj = parsedSummary.summary;
-      const header = summaryObj.title ? `
+    if (summaryPayload && typeof summaryPayload === 'object') {
+      const header = summaryPayload.title ? `
         <div class="summary-header">
-          <h2>${summaryObj.title}</h2>
-          <p>${summaryObj.date} • ${summaryObj.duration}</p>
-          ${summaryObj.view_recording ? `<a href="${summaryObj.view_recording}" target="_blank">View Recording</a>` : ''}
+          <h2>${summaryPayload.title}</h2>
+          <p>${summaryPayload.date} • ${summaryPayload.duration}</p>
+          ${summaryPayload.view_recording ? `<a href="${summaryPayload.view_recording}" target="_blank">View Recording</a>` : ''}
         </div>
       ` : '';
 
-      const actionItems = buildActionItemsHtml(summaryObj.action_items);
-      const meetingPurpose = summaryObj.meeting_summary?.meeting_purpose
-        ? `<p>${summaryObj.meeting_summary.meeting_purpose}</p>`
+      const actionItems = buildActionItemsHtml(summaryPayload.action_items);
+      const meetingPurpose = summaryPayload.meeting_summary?.meeting_purpose
+        ? `<p>${summaryPayload.meeting_summary.meeting_purpose}</p>`
         : '<p class="empty">Meeting purpose not available.</p>';
-      const keyTakeaways = (summaryObj.meeting_summary?.key_takeaways || []).map(k => `<li>${k}</li>`).join('');
-      const topics = buildTopicsHtml(summaryObj.topics);
-      const continuationSection = summaryObj.continuation_summary
+      const keyTakeaways = (summaryPayload.meeting_summary?.key_takeaways || []).map(k => `<li>${k}</li>`).join('');
+      const topics = buildTopicsHtml(summaryPayload.topics);
+      const continuationSection = summaryPayload.continuation_summary
         ? `
           <div class="continuation-block">
             <h3>Continuation</h3>
             <ul>
-              ${summaryObj.continuation_summary.progress ? `<li>Progress: ${summaryObj.continuation_summary.progress}</li>` : ''}
-              ${summaryObj.continuation_summary.completed?.length ? `<li>Completed: ${summaryObj.continuation_summary.completed.join(', ')}</li>` : ''}
-              ${summaryObj.continuation_summary.next_steps?.length ? `<li>Next steps: ${summaryObj.continuation_summary.next_steps.join(', ')}</li>` : ''}
-              ${summaryObj.continuation_summary.estimated_remaining_days ? `<li>Estimated remaining time: ${summaryObj.continuation_summary.estimated_remaining_days} days</li>` : ''}
-              ${summaryObj.continuation_summary.blockers?.length ? `<li>Blockers: ${summaryObj.continuation_summary.blockers.join(', ')}</li>` : ''}
+              ${summaryPayload.continuation_summary.progress ? `<li>Progress: ${summaryPayload.continuation_summary.progress}</li>` : ''}
+              ${summaryPayload.continuation_summary.completed?.length ? `<li>Completed: ${summaryPayload.continuation_summary.completed.join(', ')}</li>` : ''}
+              ${summaryPayload.continuation_summary.next_steps?.length ? `<li>Next steps: ${summaryPayload.continuation_summary.next_steps.join(', ')}</li>` : ''}
+              ${summaryPayload.continuation_summary.estimated_remaining_days ? `<li>Estimated remaining time: ${summaryPayload.continuation_summary.estimated_remaining_days} days</li>` : ''}
+              ${summaryPayload.continuation_summary.blockers?.length ? `<li>Blockers: ${summaryPayload.continuation_summary.blockers.join(', ')}</li>` : ''}
             </ul>
           </div>
         ` : '';
@@ -130,7 +136,8 @@ async function init() {
         ${continuationSection}
       `;
     } else {
-      setText(summaryBlock, summaryText, 'Summary will appear once processing is complete.');
+      const fallbackSummary = typeof summaryText === 'object' ? JSON.stringify(summaryText) : summaryText;
+      setText(summaryBlock, fallbackSummary, 'Summary will appear once processing is complete.');
     }
     setText(transcriptBlock, data?.transcript, 'Transcript is still processing.');
   } catch (err) {

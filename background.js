@@ -35,6 +35,29 @@ async function ensureMicReady(tabId) {
   return true;
 }
 
+async function ensureOffscreenPermission() {
+  if (!chrome.permissions) return true;
+  const has = await new Promise((resolve) => {
+    chrome.permissions.contains({ permissions: ['offscreen'] }, (result) => {
+      resolve(result);
+    });
+  });
+
+  if (has) return true;
+
+  const granted = await new Promise((resolve) => {
+    chrome.permissions.request({ permissions: ['offscreen'] }, (grantedPermission) => {
+      resolve(grantedPermission);
+    });
+  });
+
+  if (!granted) {
+    throw new Error('Offscreen permission denied.');
+  }
+
+  return true;
+}
+
 async function beginRecording(tabId) {
   stopBadgeFlash(tabId);
   await setBadge(tabId, 'REC', '#dc2626');
@@ -251,6 +274,7 @@ async function handleStartRecording(tabId) {
 
     const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
 
+    await ensureOffscreenPermission();
     await ensureOffscreenDocument();
     await ensureOffscreenReady();
 
